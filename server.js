@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 require('dotenv').config();  // Ładowanie zmiennych środowiskowych z .env
 const AutoIncrement = require('mongoose-sequence')(mongoose);  // Dodanie mongoose-sequence
+const axios = require('axios');
 
 
 const app = express();
@@ -115,30 +116,56 @@ const transactionSchema = new mongoose.Schema({
   });
   
   const Transaction = mongoose.model('Transaction', transactionSchema, 'orders');  
+//powiadomienie push
+  async function sendNewProductNotification(product) {
+    try {
+      await axios.post('https://onesignal.com/api/v1/notifications', {
+        app_id: process.env.ONESIGNAL_APP_ID,
+        included_segments: ['Subscribed Users'],
+        headings: { en: '🆕 Nowy produkt w sklepie!' },
+        contents: { en: `${product.name} jest już dostępna w sklepie.` },
+        url: 'https://my-react-app-ten-wheat.vercel.app/',
+        chrome_web_icon: product.imageUrl
+      }, {
+        headers: {
+          'Authorization': `Basic ${process.env.ONESIGNAL_API_KEY}`,
+          'Content-Type': 'application/json',
+        }
+      });
+    } catch (err) {
+      console.error('❌ Błąd wysyłania powiadomienia OneSignal:', err.response?.data || err.message);
+    }
+  }
+  
 
 // Dodawanie nowego produktu - Teas i HerbalTeas
 app.post('/api/admin/products', async (req, res) => {
-    try {
-      const { category, name, price, description, imageUrl } = req.body;
-  
-      if (!name || !price || !description || !imageUrl || !category) {
-        return res.status(400).json({ message: 'Brak wymaganych danych' });
-      }
-  
-      let newProduct;
-      if (category === 'herbal-teas') {
-        newProduct = new HerbalTea({ name, price, description, imageUrl, category: 'herbal-teas' });
-      } else {
-        newProduct = new Tea({ name, price, description, imageUrl, category: 'teas' });
-      }
-  
-      await newProduct.save();
-      res.status(201).json({ message: 'Produkt dodany pomyślnie!', product: newProduct });
-    } catch (error) {
-      console.error('Błąd podczas dodawania produktu:', error);
-      res.status(500).json({ message: 'Błąd podczas dodawania produktu' });
+  try {
+    const { category, name, price, description, imageUrl } = req.body;
+
+    if (!name || !price || !description || !imageUrl || !category) {
+      return res.status(400).json({ message: 'Brak wymaganych danych' });
     }
-  });  
+
+    let newProduct;
+    if (category === 'herbal-teas') {
+      newProduct = new HerbalTea({ name, price, description, imageUrl, category: 'herbal-teas' });
+    } else {
+      newProduct = new Tea({ name, price, description, imageUrl, category: 'teas' });
+    }
+
+    await newProduct.save();
+
+    // 🔔 Wyślij powiadomienie push
+    await sendNewProductNotification(newProduct);
+
+    res.status(201).json({ message: 'Produkt dodany pomyślnie!', product: newProduct });
+  } catch (error) {
+    console.error('Błąd podczas dodawania produktu:', error);
+    res.status(500).json({ message: 'Błąd podczas dodawania produktu' });
+  }
+});
+ 
 
 // Aktualizacja produktu
 app.put('/api/admin/products/:id', async (req, res) => {
